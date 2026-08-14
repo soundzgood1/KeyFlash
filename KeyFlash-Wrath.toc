@@ -1,0 +1,10 @@
+## Interface: 30401
+## Title: KeyFlash
+## Notes: Button-press visual effects for your action bars.
+## Author: Soundz
+## Version: 1.5
+## DefaultState: Enabled
+## SavedVariables: KeyFlashDB
+
+KeyFlash.lua
+KeyFlashOptions.lua
