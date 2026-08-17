@@ -354,7 +354,12 @@ local function RegisterButton(btn)
     end
 end
 
-local function ScanButtons()
+local lastFullWalk = 0
+-- fullScan gates the EnumerateFrames walk below (see its own comment) — pass
+-- true for login/world-entry, false for high-frequency events like
+-- ACTIONBAR_PAGE_CHANGED/UPDATE_BONUS_ACTIONBAR where the named-bar passes
+-- already give full coverage cheaply.
+local function ScanButtons(fullScan)
     slotToButton    = {}
     spellIdToButton = {}
     for _, bar in ipairs(BLIZZARD_BARS) do
@@ -400,17 +405,27 @@ local function ScanButtons()
     -- Generic scan for TukUI and other bar addons
     -- PostClick is hooked here too so any action button found by frame enumeration
     -- (including extra ElvUI bars, TukUI, etc.) gets direct mouse-click coverage.
-    local f = EnumerateFrames()
-    local n = 0
-    while f and n < 5000 do
-        n = n + 1
-        local ok, atype = pcall(f.GetAttribute, f, "type")
-        if ok and atype == "action" then
-            RegisterButton(f)
-            HookButtonDirect(f)
-            HookButtonFlash(f)
+    --
+    -- This is an unbounded traversal of up to 5000 frames with a pcall'd
+    -- GetAttribute on each, so it's gated behind fullScan and throttled to
+    -- once every 3s: ACTIONBAR_PAGE_CHANGED/UPDATE_BONUS_ACTIONBAR (stance/
+    -- form changes, vehicles) can fire repeatedly in quick succession in
+    -- combat, and the named-bar passes above already give those events full
+    -- coverage without paying for a full UI-wide walk every time.
+    if fullScan and (GetTime() - lastFullWalk) >= 3 then
+        lastFullWalk = GetTime()
+        local f = EnumerateFrames()
+        local n = 0
+        while f and n < 5000 do
+            n = n + 1
+            local ok, atype = pcall(f.GetAttribute, f, "type")
+            if ok and atype == "action" then
+                RegisterButton(f)
+                HookButtonDirect(f)
+                HookButtonFlash(f)
+            end
+            f = EnumerateFrames(f)
         end
-        f = EnumerateFrames(f)
     end
 end
 
@@ -645,7 +660,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 C_Timer.After(3, function() KeyFlash.ShowWhatsNew() end)
             end
         end
-        ScanButtons()
+        ScanButtons(true)
         local useHook = KeyFlashDB.forceUseActionHook
             or (IsAddOnLoaded and (
                 IsAddOnLoaded("Bartender4") or
@@ -683,14 +698,20 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- ElvUI and some other bar addons finish building their buttons after
         -- PLAYER_LOGIN. Schedule a follow-up scan so they are caught in time.
         if C_Timer then
-            C_Timer.After(2, ScanButtons)
+            C_Timer.After(2, function() ScanButtons(true) end)
         end
-    else
-        ScanButtons()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        ScanButtons(true)
         -- Re-scan after a short delay on world entry to catch any bar addon
         -- (e.g. ElvUI) that finalises its buttons on the next few frames.
         if C_Timer then
-            C_Timer.After(2, ScanButtons)
+            C_Timer.After(2, function() ScanButtons(true) end)
         end
+    else
+        -- ACTIONBAR_PAGE_CHANGED / UPDATE_BONUS_ACTIONBAR: named-bar passes
+        -- above already give these full coverage; skip the expensive generic
+        -- walk since these events can fire repeatedly in quick succession
+        -- (stance/form changes, vehicle mounts) during combat.
+        ScanButtons(false)
     end
 end)
