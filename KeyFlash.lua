@@ -355,6 +355,40 @@ local function RegisterButton(btn)
 end
 
 local lastFullWalk = 0
+local fullWalkInProgress = false
+
+-- Processes one chunk of the EnumerateFrames walk, then yields to the next
+-- frame via C_Timer.After(0, ...) before continuing — spreads the up-to-5000
+-- frame traversal (each with a pcall'd GetAttribute) across many frames
+-- instead of paying for all of it in the single frame it started on, which
+-- was measured causing ~500ms stutters on zoning into a busy area.
+local FRAMES_PER_CHUNK = 250
+local function ContinueFrameWalk(f, n)
+    local processed = 0
+    while f and n < 5000 and processed < FRAMES_PER_CHUNK do
+        n = n + 1
+        processed = processed + 1
+        local ok, atype = pcall(f.GetAttribute, f, "type")
+        if ok and atype == "action" then
+            RegisterButton(f)
+            HookButtonDirect(f)
+            HookButtonFlash(f)
+        end
+        f = EnumerateFrames(f)
+    end
+    if f and n < 5000 then
+        if C_Timer then
+            C_Timer.After(0, function() ContinueFrameWalk(f, n) end)
+        else
+            -- No C_Timer (very old client) — finish synchronously rather
+            -- than leaving the scan incomplete.
+            ContinueFrameWalk(f, n)
+        end
+    else
+        fullWalkInProgress = false
+    end
+end
+
 -- fullScan gates the EnumerateFrames walk below (see its own comment) — pass
 -- true for login/world-entry, false for high-frequency events like
 -- ACTIONBAR_PAGE_CHANGED/UPDATE_BONUS_ACTIONBAR where the named-bar passes
@@ -406,26 +440,17 @@ local function ScanButtons(fullScan)
     -- PostClick is hooked here too so any action button found by frame enumeration
     -- (including extra ElvUI bars, TukUI, etc.) gets direct mouse-click coverage.
     --
-    -- This is an unbounded traversal of up to 5000 frames with a pcall'd
-    -- GetAttribute on each, so it's gated behind fullScan and throttled to
-    -- once every 3s: ACTIONBAR_PAGE_CHANGED/UPDATE_BONUS_ACTIONBAR (stance/
-    -- form changes, vehicles) can fire repeatedly in quick succession in
-    -- combat, and the named-bar passes above already give those events full
-    -- coverage without paying for a full UI-wide walk every time.
-    if fullScan and (GetTime() - lastFullWalk) >= 3 then
+    -- Unbounded traversal of up to 5000 frames with a pcall'd GetAttribute on
+    -- each, so it's gated behind fullScan and throttled to once every 3s:
+    -- ACTIONBAR_PAGE_CHANGED/UPDATE_BONUS_ACTIONBAR (stance/form changes,
+    -- vehicles) can fire repeatedly in quick succession in combat, and the
+    -- named-bar passes above already give those events full coverage without
+    -- paying for a full UI-wide walk every time. The walk itself runs in
+    -- chunks (see ContinueFrameWalk) rather than all at once.
+    if fullScan and not fullWalkInProgress and (GetTime() - lastFullWalk) >= 3 then
         lastFullWalk = GetTime()
-        local f = EnumerateFrames()
-        local n = 0
-        while f and n < 5000 do
-            n = n + 1
-            local ok, atype = pcall(f.GetAttribute, f, "type")
-            if ok and atype == "action" then
-                RegisterButton(f)
-                HookButtonDirect(f)
-                HookButtonFlash(f)
-            end
-            f = EnumerateFrames(f)
-        end
+        fullWalkInProgress = true
+        ContinueFrameWalk(EnumerateFrames(), 0)
     end
 end
 
