@@ -4,6 +4,12 @@
 
 KeyFlash = {}
 
+-- ── AddOn-loaded compat shim ─────────────────────────────────────────────────
+-- Retail removed the IsAddOnLoaded global (it now lives in C_AddOns).  Declared
+-- here rather than next to the event frame because ScanButtons below would
+-- otherwise bind to the global name and silently skip its Dominos pass.
+local IsAddOnLoaded = IsAddOnLoaded or (C_AddOns and C_AddOns.IsAddOnLoaded)
+
 -- ── DB defaults ───────────────────────────────────────────────────────────────
 local DB_DEFAULTS = {
     enabled          = true,
@@ -338,7 +344,10 @@ local BLIZZARD_BARS = {
 
 local function RegisterButton(btn)
     if not btn then return end
-    local action = btn.action or btn:GetAttribute("action")
+    -- tonumber: third-party bars may expose the attribute as a string, which
+    -- would otherwise throw on the comparison below (this runs inside the
+    -- frame walk, where only the GetAttribute("type") probe is pcall-guarded).
+    local action = tonumber(btn.action or btn:GetAttribute("action"))
     if action and action > 0 then
         -- Prefer the visible button for each slot.  Bar addons hide the standard
         -- Blizzard frames and replace them with their own; registering the hidden
@@ -447,7 +456,8 @@ local function ScanButtons(fullScan)
     -- named-bar passes above already give those events full coverage without
     -- paying for a full UI-wide walk every time. The walk itself runs in
     -- chunks (see ContinueFrameWalk) rather than all at once.
-    if fullScan and not fullWalkInProgress and (GetTime() - lastFullWalk) >= 3 then
+    if EnumerateFrames and fullScan and not fullWalkInProgress
+            and (GetTime() - lastFullWalk) >= 3 then
         lastFullWalk = GetTime()
         fullWalkInProgress = true
         ContinueFrameWalk(EnumerateFrames(), 0)
@@ -541,7 +551,7 @@ local function MinimapButtonPos(button, deg)
     if x < 0 then q = q + 1 end
     if y > 0 then q = q + 2 end
     local shape      = GetMinimapShape and GetMinimapShape() or "ROUND"
-    local quadTable  = minimapShapes[shape]
+    local quadTable  = minimapShapes[shape] or minimapShapes.ROUND
     local w = (Minimap:GetWidth()  / 2) + MINIMAP_EDGE_OFFSET
     local h = (Minimap:GetHeight() / 2) + MINIMAP_EDGE_OFFSET
     if quadTable[q] then
@@ -662,7 +672,6 @@ SlashCmdList["KEYFLASH"] = function(msg)
 end
 
 -- ── Initialization ────────────────────────────────────────────────────────────
-local IsAddOnLoaded = IsAddOnLoaded or (C_AddOns and C_AddOns.IsAddOnLoaded)
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_LOGIN")
