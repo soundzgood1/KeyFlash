@@ -339,9 +339,10 @@ end
 local win
 
 local function BuildWindow()
+    local W = 440   -- window width; sub-labels wrap against it
     -- ── Base frame (plain, no template – we paint everything)
     win = CreateFrame("Frame", "KeyFlashMainFrame", UIParent)
-    win:SetSize(440, 674)   -- provisional; height re-derived from the layout cursor below
+    win:SetSize(W, 674)   -- provisional height; re-derived from the layout cursor below
     win:SetPoint("CENTER")
     win:SetFrameStrata("DIALOG")
     win:SetToplevel(true)
@@ -667,6 +668,8 @@ local function BuildWindow()
     local cbHookSub = win:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     cbHookSub:SetPoint("TOPLEFT", cbHook, "BOTTOMLEFT", 0, -2)
     cbHookSub:SetText("|cff555566Requires reload. Enable if buttons on custom bars don't flash.|r")
+    cbHookSub:SetWidth(W - 2 * M)
+    cbHookSub:SetWordWrap(true)
 
     local cbFlash = CreateFrame("CheckButton", nil, win)
     cbFlash:SetSize(22, 22)
@@ -684,7 +687,9 @@ local function BuildWindow()
     cbFlashLbl:SetText("Hide default WoW button flash")
     local cbFlashSub = win:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     cbFlashSub:SetPoint("TOPLEFT", cbFlash, "BOTTOMLEFT", 0, -2)
-    cbFlashSub:SetText("|cff555566Hides the pushed-down frame shown while a button is held. Proc glows and the auto-attack indicator are unaffected.|r")
+    cbFlashSub:SetText("|cff555566Hides the pushed-down frame. Proc glows and auto-attack stay visible.|r")
+    cbFlashSub:SetWidth(W - 2 * M)
+    cbFlashSub:SetWordWrap(true)
 
     Div(win, Y(42))
 
@@ -739,7 +744,9 @@ local function BuildWindow()
 
     -- Window height follows the cursor, so adding a control no longer means
     -- remembering to bump a hardcoded height as well.
-    win:SetHeight(-y + 12)
+    -- +24 = one credits line (~10px) plus a bottom margin. It was +12, which
+    -- left the credits sitting flush against the window border with no room.
+    win:SetHeight(-y + 24)
 
     -- ── SyncSliders: load current effect's per-effect settings into UI ────────
     SyncSliders = function()
