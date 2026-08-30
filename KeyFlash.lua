@@ -181,6 +181,23 @@ function KeyFlash.RebuildOverlays()
     pool = {}
 end
 
+-- Enable/disable, shared by the minimap button, the addon compartment entry
+-- and /kf so all three report the state the same way.
+function KeyFlash.PrintStatus()
+    print("|cffffe066KeyFlash:|r " ..
+        (KeyFlashDB.enabled and "|cff00ff00Enabled|r" or "|cffff4040Disabled|r"))
+end
+
+function KeyFlash.SetEnabled(on)
+    KeyFlashDB.enabled = on and true or false
+    KeyFlash.RebuildOverlays()
+    KeyFlash.PrintStatus()
+end
+
+function KeyFlash.ToggleEnabled()
+    KeyFlash.SetEnabled(not KeyFlashDB.enabled)
+end
+
 function KeyFlash.PlayEffect(button)
     if not button then return end
     if not KeyFlashDB or not KeyFlashDB.enabled then return end
@@ -295,32 +312,25 @@ local function HookButtonDirect(btn)
     end)
 end
 
--- Hooks btn.Flash:Show() so WoW's built-in button-press highlight can be
+-- Hooks the pushed-down state so WoW's built-in button-press visual can be
 -- suppressed when suppressWowFlash is enabled.  The hook is permanent but
--- cheap: it only calls Hide() when the setting is on.
+-- cheap: it returns immediately when the setting is off.
 local hookedFlash = {}
 local function HookButtonFlash(btn)
     if not btn or hookedFlash[btn] then return end
     hookedFlash[btn] = true
 
-    -- SetAlpha(0) instead of Hide() so the frame stays "shown" from WoW/Masque's
-    -- perspective.  Calling Hide() triggers Masque's OnHide path which can leave
-    -- a coloured border tint even after the frame is hidden.
-    local function suppress(self)
-        if KeyFlashDB and KeyFlashDB.suppressWowFlash then self:SetAlpha(0) end
-    end
-    local function restore(self) self:SetAlpha(1) end
-
-    -- Flash: the yellow blink shown briefly when a button is activated by a keybind
-    if btn.Flash then
-        hooksecurefunc(btn.Flash, "Show", suppress)
-        hooksecurefunc(btn.Flash, "Hide", restore)
-    end
-    -- SpellCastAnimFrame is intentionally NOT hooked: it shows proc/reactive ability
-    -- glows which are important gameplay information and must remain visible.
-    -- PushedTexture: the white frame shown when the button enters PUSHED state.
-    -- SetButtonState is C-level so PushedTexture:Show() is never called from Lua;
-    -- we hook SetButtonState itself and zero the texture alpha there instead.
+    -- btn.Flash is deliberately NOT hooked.  It is not the keypress blink: per
+    -- Blizzard_ActionBar/Shared/ActionButton.lua it is driven only by
+    -- StartFlash/StopFlash off PLAYER_ENTER_COMBAT and START_AUTOREPEAT_SPELL,
+    -- i.e. it is the auto-attack / auto-repeat indicator.  Hiding it would cost
+    -- the player the "is my auto-attack running?" readout.
+    -- SpellCastAnimFrame is likewise left alone: it shows proc/reactive glows
+    -- which are gameplay information and must stay visible.
+    -- PushedTexture is the actual keypress visual: the white frame shown when
+    -- the button enters PUSHED state.  SetButtonState is C-level so
+    -- PushedTexture:Show() is never called from Lua; we hook SetButtonState
+    -- itself and zero the texture alpha there instead.
     hooksecurefunc(btn, "SetButtonState", function(self, state)
         if not KeyFlashDB or not KeyFlashDB.suppressWowFlash then return end
         local pt = self:GetPushedTexture()
@@ -609,10 +619,7 @@ local function CreateMinimapButton()
 
     mb:SetScript("OnClick", function(self, btn)
         if btn == "RightButton" then
-            KeyFlashDB.enabled = not KeyFlashDB.enabled
-            KeyFlash.RebuildOverlays()
-            print("|cffffe066KeyFlash:|r " ..
-                (KeyFlashDB.enabled and "|cff00ff00Enabled|r" or "|cffff4040Disabled|r"))
+            KeyFlash.ToggleEnabled()
         else
             KeyFlash.OpenSettings()
         end
@@ -640,12 +647,17 @@ local function CreateMinimapButton()
             icon                = [[Interface\AddOns\KeyFlash\minimap_icon.tga]],
             registerForAnyClick = true,
             notCheckable        = true,
-            func = function(_, _, _, _, buttonName)
-                if buttonName == "RightButton" then
-                    KeyFlashDB.enabled = not KeyFlashDB.enabled
-                    KeyFlash.RebuildOverlays()
-                    print("|cffffe066KeyFlash:|r " ..
-                        (KeyFlashDB.enabled and "|cff00ff00Enabled|r" or "|cffff4040Disabled|r"))
+            -- Since 11.0 the compartment runs on the new menu framework:
+            -- Blizzard_Menu/Menu.lua calls the responder as
+            -- func(data, menuInputData, menu), with the mouse button in
+            -- menuInputData.buttonName.  The old five-argument
+            -- UIDropDownMenu signature left buttonName permanently nil, so
+            -- right-click never toggled.  Guarded so an older client that
+            -- still passes the legacy shape degrades to opening settings.
+            func = function(_, inputData)
+                local mouseBtn = type(inputData) == "table" and inputData.buttonName
+                if mouseBtn == "RightButton" then
+                    KeyFlash.ToggleEnabled()
                 else
                     KeyFlash.OpenSettings()
                 end
@@ -655,18 +667,13 @@ local function CreateMinimapButton()
 end
 
 -- ── Slash commands ────────────────────────────────────────────────────────────
-local function PrintStatus()
-    print("|cffffe066KeyFlash:|r " ..
-        (KeyFlashDB.enabled and "|cff00ff00Enabled|r" or "|cffff4040Disabled|r"))
-end
-
 SLASH_KEYFLASH1 = "/keyflash"
 SLASH_KEYFLASH2 = "/kf"
 SlashCmdList["KEYFLASH"] = function(msg)
     msg = (msg or ""):lower():match("^%s*(.-)%s*$")
-    if     msg == "on"     then KeyFlashDB.enabled = true  ; PrintStatus()
-    elseif msg == "off"    then KeyFlashDB.enabled = false ; PrintStatus()
-    elseif msg == "toggle" then KeyFlashDB.enabled = not KeyFlashDB.enabled ; PrintStatus()
+    if     msg == "on"     then KeyFlash.SetEnabled(true)
+    elseif msg == "off"    then KeyFlash.SetEnabled(false)
+    elseif msg == "toggle" then KeyFlash.ToggleEnabled()
     else   KeyFlash.OpenSettings()
     end
 end

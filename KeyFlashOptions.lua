@@ -659,7 +659,7 @@ local function BuildWindow()
     cbFlashLbl:SetText("Hide default WoW button flash")
     local cbFlashSub = win:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     cbFlashSub:SetPoint("TOPLEFT", cbFlash, "BOTTOMLEFT", 0, -2)
-    cbFlashSub:SetText("|cff555566Hides the yellow keypress blink and pushed-down frame. Proc glows are unaffected.|r")
+    cbFlashSub:SetText("|cff555566Hides the pushed-down frame shown while a button is held. Proc glows and the auto-attack indicator are unaffected.|r")
 
     Div(win, -540)
 
