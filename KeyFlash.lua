@@ -377,14 +377,21 @@ local lastFullWalk = 0
 local fullWalkInProgress = false
 
 -- Processes one chunk of the EnumerateFrames walk, then yields to the next
--- frame via C_Timer.After(0, ...) before continuing — spreads the up-to-5000
--- frame traversal (each with a pcall'd GetAttribute) across many frames
--- instead of paying for all of it in the single frame it started on, which
--- was measured causing ~500ms stutters on zoning into a busy area.
+-- frame via C_Timer.After(0, ...) before continuing — spreads the traversal
+-- (each frame costing a pcall'd GetAttribute) across many frames instead of
+-- paying for all of it in the single frame it started on, which was measured
+-- causing ~500ms stutters on zoning into a busy area.
+--
+-- MAX_FRAMES was 5000 back when the walk ran synchronously and the cap was
+-- really a stutter guard. A big UI (ElvUI + WeakAuras + Details) passes that
+-- easily, and everything beyond it was silently never hooked. Now that the
+-- work is chunked the cap only bounds total spread-out work, so it is set
+-- high enough to cover realistic UIs.
 local FRAMES_PER_CHUNK = 250
+local MAX_FRAMES       = 20000
 local function ContinueFrameWalk(f, n)
     local processed = 0
-    while f and n < 5000 and processed < FRAMES_PER_CHUNK do
+    while f and n < MAX_FRAMES and processed < FRAMES_PER_CHUNK do
         n = n + 1
         processed = processed + 1
         local ok, atype = pcall(f.GetAttribute, f, "type")
@@ -395,7 +402,7 @@ local function ContinueFrameWalk(f, n)
         end
         f = EnumerateFrames(f)
     end
-    if f and n < 5000 then
+    if f and n < MAX_FRAMES then
         if C_Timer then
             C_Timer.After(0, function() ContinueFrameWalk(f, n) end)
         else
@@ -412,13 +419,23 @@ end
 -- true for login/world-entry, false for high-frequency events like
 -- ACTIONBAR_PAGE_CHANGED/UPDATE_BONUS_ACTIONBAR where the named-bar passes
 -- already give full coverage cheaply.
-local function ScanButtons(fullScan)
+--
+-- force skips the 3s throttle on the walk. The delayed follow-up scans exist
+-- precisely to catch bar addons that finish building after login, but they
+-- fire 2s after the scan that just armed the throttle, so without this they
+-- were dropped and the generic walk ran exactly once per login — at the
+-- earliest possible moment, before those addons were ready.
+local function ScanButtons(fullScan, force)
     slotToButton    = {}
     spellIdToButton = {}
     for _, bar in ipairs(BLIZZARD_BARS) do
         for i = 1, bar.count do
             local btn = _G[bar.prefix .. i]
             RegisterButton(btn)
+            -- PostClick too: ActionButtonDown/MultiActionButtonDown only cover
+            -- keybinds, so without this, mouse clicks on the default bars were
+            -- only ever hooked as a side effect of the generic frame walk.
+            HookButtonDirect(btn)
             HookButtonFlash(btn)
         end
     end
@@ -459,15 +476,15 @@ local function ScanButtons(fullScan)
     -- PostClick is hooked here too so any action button found by frame enumeration
     -- (including extra ElvUI bars, TukUI, etc.) gets direct mouse-click coverage.
     --
-    -- Unbounded traversal of up to 5000 frames with a pcall'd GetAttribute on
-    -- each, so it's gated behind fullScan and throttled to once every 3s:
+    -- A long traversal with a pcall'd GetAttribute on each frame, so it is
+    -- gated behind fullScan and throttled to once every 3s unless forced:
     -- ACTIONBAR_PAGE_CHANGED/UPDATE_BONUS_ACTIONBAR (stance/form changes,
     -- vehicles) can fire repeatedly in quick succession in combat, and the
     -- named-bar passes above already give those events full coverage without
     -- paying for a full UI-wide walk every time. The walk itself runs in
     -- chunks (see ContinueFrameWalk) rather than all at once.
     if EnumerateFrames and fullScan and not fullWalkInProgress
-            and (GetTime() - lastFullWalk) >= 3 then
+            and (force or (GetTime() - lastFullWalk) >= 3) then
         lastFullWalk = GetTime()
         fullWalkInProgress = true
         ContinueFrameWalk(EnumerateFrames(), 0)
@@ -739,14 +756,14 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- ElvUI and some other bar addons finish building their buttons after
         -- PLAYER_LOGIN. Schedule a follow-up scan so they are caught in time.
         if C_Timer then
-            C_Timer.After(2, function() ScanButtons(true) end)
+            C_Timer.After(2, function() ScanButtons(true, true) end)
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
         ScanButtons(true)
         -- Re-scan after a short delay on world entry to catch any bar addon
         -- (e.g. ElvUI) that finalises its buttons on the next few frames.
         if C_Timer then
-            C_Timer.After(2, function() ScanButtons(true) end)
+            C_Timer.After(2, function() ScanButtons(true, true) end)
         end
     else
         -- ACTIONBAR_PAGE_CHANGED / UPDATE_BONUS_ACTIONBAR: named-bar passes
