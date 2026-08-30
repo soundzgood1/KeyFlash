@@ -281,6 +281,9 @@ function KeyFlash.OpenSettings() end
 -- ── Button scanning ───────────────────────────────────────────────────────────
 local slotToButton   = {}
 local spellIdToButton = {}  -- spellId → button, for macro-triggered casts
+local slotToSpellId   = {}  -- action slot → spellId currently on it; reverse index
+                            -- so a slot change can drop its stale spellIdToButton
+                            -- entry in O(1) instead of scanning the whole map.
 
 -- Deduplication: when UseAction/PostClick already flashed a button, suppress the
 -- follow-up UNIT_SPELLCAST_SENT flash so the animation doesn't fire twice.
@@ -369,7 +372,35 @@ local function RegisterButton(btn)
         local atype, spellId = GetActionInfo(action)
         if atype == "spell" and spellId and spellId > 0 then
             spellIdToButton[spellId] = btn
+            slotToSpellId[action]    = spellId
         end
+    end
+end
+
+-- Re-reads which spell sits on one action slot. ACTIONBAR_SLOT_CHANGED arrives
+-- as a burst of one event per slot on login and on every spec/talent change, so
+-- this has to stay O(1) per slot -- calling ScanButtons here would be a serious
+-- regression. slot 0 means "all slots" (see Blizzard's own handler in
+-- ActionButton.lua), which is why the caller loops instead.
+local function RefreshSlotSpell(action)
+    action = tonumber(action)
+    if not action or action <= 0 then return end
+    local prev = slotToSpellId[action]
+    if prev then
+        -- Only drop the old mapping if it still points at this slot's button:
+        -- the same spell can sit on several slots, and the survivor should keep
+        -- its entry.
+        if spellIdToButton[prev] == slotToButton[action] then
+            spellIdToButton[prev] = nil
+        end
+        slotToSpellId[action] = nil
+    end
+    local btn = slotToButton[action]
+    if not btn then return end
+    local atype, spellId = GetActionInfo(action)
+    if atype == "spell" and spellId and spellId > 0 then
+        spellIdToButton[spellId] = btn
+        slotToSpellId[action]    = spellId
     end
 end
 
@@ -428,6 +459,7 @@ end
 local function ScanButtons(fullScan, force)
     slotToButton    = {}
     spellIdToButton = {}
+    slotToSpellId   = {}
     for _, bar in ipairs(BLIZZARD_BARS) do
         for i = 1, bar.count do
             local btn = _G[bar.prefix .. i]
@@ -703,12 +735,23 @@ frame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 frame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("UNIT_SPELLCAST_SENT")
+frame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
 frame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_SPELLCAST_SENT" then
         local unit, _, _, spellId = ...
         if unit == "player" and KeyFlashDB and KeyFlashDB.enabled then
             local btn = spellId and spellIdToButton[spellId]
             if btn then FlashButton(btn) end
+        end
+    elseif event == "ACTIONBAR_SLOT_CHANGED" then
+        -- Keeps the macro fallback map (spellIdToButton) current when the player
+        -- rearranges the bars, swaps spec or changes talents. slotToButton needs
+        -- no refresh: slot numbers are stable, only their contents change.
+        local slot = ...
+        if tonumber(slot) == 0 then
+            for action in pairs(slotToButton) do RefreshSlotSpell(action) end
+        else
+            RefreshSlotSpell(slot)
         end
     elseif event == "PLAYER_LOGIN" then
         SetupDB()
