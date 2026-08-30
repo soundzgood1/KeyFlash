@@ -424,22 +424,33 @@ local function RefreshSlotSpell(action)
     end
 end
 
-local lastFullWalk = 0
-local fullWalkInProgress = false
-
--- Processes one chunk of the EnumerateFrames walk, then yields to the next
--- frame via C_Timer.After(0, ...) before continuing — spreads the traversal
--- (each frame costing a pcall'd GetAttribute) across many frames instead of
--- paying for all of it in the single frame it started on, which was measured
--- causing ~500ms stutters on zoning into a busy area.
+-- ── Generic frame walk (fallback discovery) ──────────────────────────────────
+-- This is by far the most expensive thing KeyFlash does, and it exists only to
+-- find action buttons belonging to bar addons we do not know by name.
 --
--- MAX_FRAMES was 5000 back when the walk ran synchronously and the cap was
--- really a stutter guard. A big UI (ElvUI + WeakAuras + Details) passes that
--- easily, and everything beyond it was silently never hooked. Now that the
--- work is chunked the cap only bounds total spread-out work, so it is set
--- high enough to cover realistic UIs.
-local FRAMES_PER_CHUNK = 250
+-- Measured with Blizzard's own profiler (C_AddOnProfiler, via StutterAlert) on
+-- a Blizzard-bars install: KeyFlash was blamed for 1101 hitch frames of 40-85ms
+-- over ~84 hours, 88% of them in cities, and the dominant signature was
+-- "no event firing" -- i.e. the C_Timer chain below, not any event handler.
+-- Chunking (added in 1.6) did not fix that; it only decided how the cost was
+-- distributed. The fix is to not do the work:
+--
+--   * gated behind NeedsGenericWalk(), so an install on Blizzard's own bars --
+--     which the named passes above already cover completely -- never walks;
+--   * one-shot per session rather than per login and per zone change, since bar
+--     addons build their buttons once and do not recreate them on zoning;
+--   * triggered on demand from FlashSlot when a press lands on a slot the named
+--     passes could not resolve, so unknown bars still get covered.
+local fullWalkInProgress = false
+local genericWalkDone    = false
+
+local FRAMES_PER_CHUNK = 100
 local MAX_FRAMES       = 20000
+local CHUNK_DELAY      = 0.01   -- deliberately not 0: a zero-delay timer queued
+                                -- from inside a timer callback can be picked up
+                                -- by the same tick's processing pass, which
+                                -- collapses the whole walk back into one frame.
+
 local function ContinueFrameWalk(f, n)
     local processed = 0
     while f and n < MAX_FRAMES and processed < FRAMES_PER_CHUNK do
@@ -455,7 +466,7 @@ local function ContinueFrameWalk(f, n)
     end
     if f and n < MAX_FRAMES then
         if C_Timer then
-            C_Timer.After(0, function() ContinueFrameWalk(f, n) end)
+            C_Timer.After(CHUNK_DELAY, function() ContinueFrameWalk(f, n) end)
         else
             -- No C_Timer (very old client) — finish synchronously rather
             -- than leaving the scan incomplete.
@@ -466,17 +477,27 @@ local function ContinueFrameWalk(f, n)
     end
 end
 
--- fullScan gates the EnumerateFrames walk below (see its own comment) — pass
--- true for login/world-entry, false for high-frequency events like
--- ACTIONBAR_PAGE_CHANGED/UPDATE_BONUS_ACTIONBAR where the named-bar passes
+-- Blizzard's main bar being visible means the player is on the default bars
+-- (Masque skinning included), which the named pass already covers button for
+-- button. Bar addons that replace them hide these frames.
+local function NeedsGenericWalk()
+    local ab1 = _G.ActionButton1
+    if ab1 and ab1:IsShown() then return false end
+    return true
+end
+
+local function StartGenericWalk()
+    if genericWalkDone or fullWalkInProgress or not EnumerateFrames then return end
+    genericWalkDone    = true
+    fullWalkInProgress = true
+    ContinueFrameWalk(EnumerateFrames(), 0)
+end
+
+-- fullScan is only about whether the generic fallback walk may be considered:
+-- pass true for login/world-entry, false for high-frequency events like
+-- ACTIONBAR_PAGE_CHANGED/UPDATE_BONUS_ACTIONBAR, where the named passes below
 -- already give full coverage cheaply.
---
--- force skips the 3s throttle on the walk. The delayed follow-up scans exist
--- precisely to catch bar addons that finish building after login, but they
--- fire 2s after the scan that just armed the throttle, so without this they
--- were dropped and the generic walk ran exactly once per login — at the
--- earliest possible moment, before those addons were ready.
-local function ScanButtons(fullScan, force)
+local function ScanButtons(fullScan)
     slotToButton    = {}
     spellIdToButton = {}
     slotToSpellId   = {}
@@ -524,22 +545,11 @@ local function ScanButtons(fullScan, force)
             end
         end
     end
-    -- Generic scan for TukUI and other bar addons
-    -- PostClick is hooked here too so any action button found by frame enumeration
-    -- (including extra ElvUI bars, TukUI, etc.) gets direct mouse-click coverage.
-    --
-    -- A long traversal with a pcall'd GetAttribute on each frame, so it is
-    -- gated behind fullScan and throttled to once every 3s unless forced:
-    -- ACTIONBAR_PAGE_CHANGED/UPDATE_BONUS_ACTIONBAR (stance/form changes,
-    -- vehicles) can fire repeatedly in quick succession in combat, and the
-    -- named-bar passes above already give those events full coverage without
-    -- paying for a full UI-wide walk every time. The walk itself runs in
-    -- chunks (see ContinueFrameWalk) rather than all at once.
-    if EnumerateFrames and fullScan and not fullWalkInProgress
-            and (force or (GetTime() - lastFullWalk) >= 3) then
-        lastFullWalk = GetTime()
-        fullWalkInProgress = true
-        ContinueFrameWalk(EnumerateFrames(), 0)
+    -- Fallback discovery for bar addons we do not know by name.  Skipped
+    -- entirely on Blizzard's own bars, and at most once per session -- see the
+    -- StartGenericWalk block above for why.
+    if fullScan and NeedsGenericWalk() then
+        StartGenericWalk()
     end
 end
 
@@ -563,6 +573,12 @@ local function FlashSlot(action)
             end
         end
         btn = btn or hiddenMatch
+        if not btn then
+            -- Nothing we know of owns this slot, so some bar addon we do not
+            -- recognise by name does.  Pay for the generic walk here, once,
+            -- instead of speculatively on every login and zone change.
+            StartGenericWalk()
+        end
         if btn then slotToButton[action] = btn end
     end
     if btn then FlashButton(btn) end
@@ -781,7 +797,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 C_Timer.After(3, function() KeyFlash.ShowWhatsNew() end)
             end
         end
-        ScanButtons(true)
+        ScanButtons(false)   -- bars may not be visible yet; the walk decision waits
         local useHook = KeyFlashDB.forceUseActionHook
             or (IsAddOnLoaded and (
                 IsAddOnLoaded("Bartender4") or
@@ -826,14 +842,14 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- ElvUI and some other bar addons finish building their buttons after
         -- PLAYER_LOGIN. Schedule a follow-up scan so they are caught in time.
         if C_Timer then
-            C_Timer.After(2, function() ScanButtons(true, true) end)
+            C_Timer.After(2, function() ScanButtons(true) end)
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
-        ScanButtons(true)
+        ScanButtons(false)   -- as above: named passes now, walk decision on the delayed scan
         -- Re-scan after a short delay on world entry to catch any bar addon
         -- (e.g. ElvUI) that finalises its buttons on the next few frames.
         if C_Timer then
-            C_Timer.After(2, function() ScanButtons(true, true) end)
+            C_Timer.After(2, function() ScanButtons(true) end)
         end
     else
         -- ACTIONBAR_PAGE_CHANGED / UPDATE_BONUS_ACTIONBAR: named-bar passes
