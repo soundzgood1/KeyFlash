@@ -1,4 +1,4 @@
-﻿-- KeyFlash by Soundz -- Options UI
+-- KeyFlash by Soundz -- Options UI
 
 -- ── Palette ──────────────────────────────────────────────────────────────────
 local GOLD  = { 1.00, 0.80, 0.10, 1.0 }
@@ -186,19 +186,32 @@ local function BuildWhatsNewWindow()
         return
     end
 
-    local WHATS_NEW_VERSION = "1.5"
+    -- Copy is hand-maintained; the version number comes from the TOC.
     local changes = {
         {
-            title = "New: Hide default WoW button flash",
-            desc  = "Settings > Compatibility > Suppresses WoW's built-in button press visuals so they don't compete with KeyFlash animations.",
+            title = "Auto-attack indicator no longer hidden",
+            desc  = "\"Hide default WoW button flash\" was suppressing the wrong texture -- the blinking auto-attack indicator rather than the keypress visual. It now hides only the pushed-down frame.",
         },
         {
-            title = "Minimap button rewrite",
-            desc  = "Rewrote minimap positioning to account for minimap shape and use actual minimap dimensions instead of hardcoded values.",
+            title = "Better action bar detection",
+            desc  = "Dominos bars, mouse clicks on the default bars and very large UIs were all partly missed. Late-loading bar addons are now picked up by the delayed rescan as intended.",
+        },
+        {
+            title = "Fast key presses no longer swallowed",
+            desc  = "The duplicate-press filter was wide enough to drop genuine repeat presses above roughly 7 per second. Spamming an ability now flashes on every press.",
+        },
+        {
+            title = "Macro flashes follow bar changes",
+            desc  = "Moving a spell to another slot or swapping specialization no longer leaves macro-triggered flashes pointing at the old button.",
         },
     }
 
-    local W, H = 420, 290
+    local ROW_H, ROW_GAP = 50, 12
+    local HEAD_H, FOOT_H = 68, 58   -- divider-to-first-row, and divider-to-bottom
+    local BODY_H = #changes * ROW_H + (#changes - 1) * ROW_GAP
+    local DIV2_Y = HEAD_H + BODY_H + 10
+
+    local W, H = 420, DIV2_Y + FOOT_H
     local f = CreateFrame("Frame", "KeyFlashWhatsNewWindow", UIParent)
     f:SetSize(W, H)
     f:SetPoint("CENTER")
@@ -246,7 +259,7 @@ local function BuildWhatsNewWindow()
     -- Title text
     local titleText = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     titleText:SetPoint("LEFT", titleIcon, "RIGHT", 7, 0)
-    titleText:SetText("|cffffe066KeyFlash " .. WHATS_NEW_VERSION .. "  — What's New|r")
+    titleText:SetText("|cffffe066KeyFlash " .. (KeyFlash.VERSION or "") .. "  — What's New|r")
 
     -- Close X button
     local closeBtn = CreateFrame("Button", nil, f)
@@ -273,8 +286,8 @@ local function BuildWhatsNewWindow()
     local firstRow = true
     for _, entry in ipairs(changes) do
         local row = CreateFrame("Frame", nil, f)
-        row:SetSize(W - 40, 50)
-        row:SetPoint("TOP", lastAnchor, "BOTTOM", 0, firstRow and -16 or -12)
+        row:SetSize(W - 40, ROW_H)
+        row:SetPoint("TOP", lastAnchor, "BOTTOM", 0, firstRow and -(HEAD_H - 52) or -ROW_GAP)
         firstRow = false
 
         local dot = row:CreateTexture(nil, "OVERLAY")
@@ -304,8 +317,8 @@ local function BuildWhatsNewWindow()
     local div2 = f:CreateTexture(nil, "ARTWORK")
     div2:SetColorTexture(0.20, 0.20, 0.27, 0.75)
     div2:SetHeight(1)
-    div2:SetPoint("TOPLEFT",  f, "TOPLEFT",  20, -242)
-    div2:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -242)
+    div2:SetPoint("TOPLEFT",  f, "TOPLEFT",  20, -DIV2_Y)
+    div2:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -DIV2_Y)
 
     -- "Got it" button
     local gotItBtn = MakeBtn(f, "Got it", 90, 26)

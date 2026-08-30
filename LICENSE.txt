@@ -1,8 +1,9 @@
 KeyFlash
 Copyright (c) 2025-2026 Soundz. All rights reserved.
 
-All textures (kf_ring.tga, kf_ripple.tga, ring_flash.tga, minimap_icon.tga)
-are original works created for this addon.
+All textures (ff14_pressed.tga, kf_ring.tga, kf_ripple.tga, ring_flash.tga,
+minimap_icon.tga) and the project logo (keyflash_logo.png) are original works
+created for this addon.
 
 No part of this addon may be reproduced, distributed, or transmitted in any
 form or by any means without the prior written permission of the author.

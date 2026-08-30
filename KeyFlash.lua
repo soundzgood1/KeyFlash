@@ -10,6 +10,14 @@ KeyFlash = {}
 -- otherwise bind to the global name and silently skip its Dominos pass.
 local IsAddOnLoaded = IsAddOnLoaded or (C_AddOns and C_AddOns.IsAddOnLoaded)
 
+-- Single source of truth for the version. It used to be hardcoded in three
+-- places (here, the What's New window and the TOC), which had already drifted:
+-- the TOC said 1.6 while both Lua copies still said 1.5, so nobody upgrading
+-- from 1.5 was told anything and anyone coming from 1.4 saw a "1.5" dialog on
+-- a 1.6 install.
+local GetAddOnMetadata = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+KeyFlash.VERSION = (GetAddOnMetadata and GetAddOnMetadata("KeyFlash", "Version")) or "?"
+
 -- ── DB defaults ───────────────────────────────────────────────────────────────
 local DB_DEFAULTS = {
     enabled          = true,
@@ -20,6 +28,7 @@ local DB_DEFAULTS = {
     minimapHide      = false,
     suppressWowFlash = false,
     lastSeenVersion  = "",
+    lastMuiNotice    = "",   -- version the mUI compatibility notice was last shown for
 }
 
 local function SetupDB()
@@ -766,8 +775,8 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
     elseif event == "PLAYER_LOGIN" then
         SetupDB()
-        if KeyFlashDB.lastSeenVersion ~= "1.5" then
-            KeyFlashDB.lastSeenVersion = "1.5"
+        if KeyFlashDB.lastSeenVersion ~= KeyFlash.VERSION then
+            KeyFlashDB.lastSeenVersion = KeyFlash.VERSION
             if C_Timer then
                 C_Timer.After(3, function() KeyFlash.ShowWhatsNew() end)
             end
@@ -792,14 +801,21 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- the same star4 texture. Both addons fire independently; if mUI's flash is
         -- enabled this results in two overlapping effects per keypress.
         -- We just inform the user — we never disable or interfere with mUI.
-        if IsAddOnLoaded and IsAddOnLoaded("mUI") then
+        -- Shown once per KeyFlash version rather than on every single login.
+        if IsAddOnLoaded and IsAddOnLoaded("mUI")
+                and KeyFlashDB.lastMuiNotice ~= KeyFlash.VERSION then
             local mdb = _G["mUIDB"]
             local muiFlashOn = (mdb == nil)  -- default is enabled if no saved var yet
-                or (mdb.profiles
-                    and mdb.profiles[mdb.profileKeys and mdb.profileKeys[UnitName("player").." - "..GetRealmName()] or "Default"]
-                    and mdb.profiles[mdb.profileKeys and mdb.profileKeys[UnitName("player").." - "..GetRealmName()] or "Default"].actionbars
-                    and mdb.profiles[mdb.profileKeys and mdb.profileKeys[UnitName("player").." - "..GetRealmName()] or "Default"].actionbars.flash ~= false)
+            if mdb and mdb.profiles then
+                local key = mdb.profileKeys
+                    and mdb.profileKeys[UnitName("player") .. " - " .. GetRealmName()]
+                    or "Default"
+                local profile = mdb.profiles[key]
+                local bars    = profile and profile.actionbars
+                muiFlashOn    = bars ~= nil and bars.flash ~= false
+            end
             if muiFlashOn then
+                KeyFlashDB.lastMuiNotice = KeyFlash.VERSION
                 print("|cffffe066KeyFlash:|r |cffaaaaaamUI detected with button flash enabled.|r")
                 print("|cffaaaaaa  Both effects will play on every keypress. To avoid doubling,")
                 print("  disable mUI's flash via |r|cfffff066/mUI|r |cffaaaaaa→ ActionBars → Button Flash.|r")
