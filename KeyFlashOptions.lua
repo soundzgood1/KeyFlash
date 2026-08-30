@@ -341,7 +341,7 @@ local win
 local function BuildWindow()
     -- ── Base frame (plain, no template – we paint everything)
     win = CreateFrame("Frame", "KeyFlashMainFrame", UIParent)
-    win:SetSize(440, 674)
+    win:SetSize(440, 674)   -- provisional; height re-derived from the layout cursor below
     win:SetPoint("CENTER")
     win:SetFrameStrata("DIALOG")
     win:SetToplevel(true)
@@ -409,6 +409,16 @@ local function BuildWindow()
     -- ─────────────────────────────────────────────────────────────────────────
     local M = 20  -- left margin
 
+    -- Vertical layout cursor.  Every control below asks Y(gap) for its offset
+    -- instead of carrying an absolute one, so inserting or removing an option
+    -- shifts only the controls after it rather than requiring ~25 constants and
+    -- the window height to be renumbered by hand.
+    local y = 0
+    local function Y(gap)
+        y = y - gap
+        return y
+    end
+
     -- ── Enable checkbox ───────────────────────────────────────────────────────
     local cbEnable = CreateFrame("CheckButton", nil, win)
     cbEnable:SetSize(22, 22)
@@ -417,7 +427,7 @@ local function BuildWindow()
     cbEnable:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
     cbEnable:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
     cbEnable:SetDisabledCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check-Disabled")
-    cbEnable:SetPoint("TOPLEFT", win, "TOPLEFT", M, -50)
+    cbEnable:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(50))
     cbEnable:SetScript("OnClick", function(self)
         KeyFlashDB.enabled = self:GetChecked() and true or false
     end)
@@ -425,19 +435,20 @@ local function BuildWindow()
     cbLbl:SetPoint("LEFT", cbEnable, "RIGHT", 6, 0)
     cbLbl:SetText("Enable flash animations")
 
-    Div(win, -82)
+    Div(win, Y(32))
 
     -- ── EFFECT section ────────────────────────────────────────────────────────
-    SectionLabel(win, "EFFECT", -94)
+    SectionLabel(win, "EFFECT", Y(12))
 
     local effLbl = win:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    effLbl:SetPoint("TOPLEFT", win, "TOPLEFT", M, -122)
+    effLbl:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(28))
     effLbl:SetText("|cff888888Effect|r")
 
     local UpdateSwatch  -- forward ref
     local SyncSliders   -- forward ref
 
-    local effectDD = MakeCustomDropdown(win, -136, 163, KeyFlash.Effects, function(id)
+    local ddY = Y(14)
+    local effectDD = MakeCustomDropdown(win, ddY, 163, KeyFlash.Effects, function(id)
         KeyFlashDB.effect = id
         UpdateSwatch()
         SyncSliders()
@@ -447,7 +458,7 @@ local function BuildWindow()
     local dummy = CreateFrame("Button", "KeyFlashPreviewDummy", win)
     dummy:SetSize(44, 44)
     dummy:SetFrameLevel(12)
-    dummy:SetPoint("TOPLEFT", win, "TOPLEFT", M + 196, -130)
+    dummy:SetPoint("TOPLEFT", win, "TOPLEFT", M + 196, ddY + 6)
 
     local dBg = dummy:CreateTexture(nil, "BACKGROUND")
     dBg:SetAllPoints(); dBg:SetColorTexture(0, 0, 0, 1)
@@ -484,7 +495,7 @@ local function BuildWindow()
 
     -- ── Color row ─────────────────────────────────────────────────────────────
     local colorLbl = win:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    colorLbl:SetPoint("TOPLEFT", win, "TOPLEFT", M, -194)
+    colorLbl:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(58))
     colorLbl:SetText("|cff888888Color|r")
 
     local swatchBtn = CreateFrame("Button", "KeyFlashColorSwatchWin", win)
@@ -551,19 +562,19 @@ local function BuildWindow()
         UpdateSwatch()
     end)
 
-    Div(win, -228)
+    Div(win, Y(34))
 
     -- ── ANIMATION section ─────────────────────────────────────────────────────
-    SectionLabel(win, "ANIMATION", -241)
+    SectionLabel(win, "ANIMATION", Y(13))
 
     -- Speed
     local speedLbl = win:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    speedLbl:SetPoint("TOPLEFT", win, "TOPLEFT", M, -266)
+    speedLbl:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(25))
     speedLbl:SetText("|cff888888Speed|r")
     local speedVal = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     speedVal:SetPoint("LEFT", speedLbl, "RIGHT", 8, 0)
 
-    local speedSlider = MakeSlider(win, -282, 0.3, 3.0, 0.1,
+    local speedSlider = MakeSlider(win, Y(16), 0.3, 3.0, 0.1,
         "|cff555566fast|r", "|cff555566slow|r")
     speedSlider:SetScript("OnValueChanged", function(self, val)
         local id = KeyFlashDB.effect or "ff14"
@@ -584,12 +595,12 @@ local function BuildWindow()
 
     -- Size
     local sizeLbl = win:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sizeLbl:SetPoint("TOPLEFT", win, "TOPLEFT", M, -318)
+    sizeLbl:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(36))
     sizeLbl:SetText("|cff888888Size|r")
     local sizeVal = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     sizeVal:SetPoint("LEFT", sizeLbl, "RIGHT", 8, 0)
 
-    local sizeSlider = MakeSlider(win, -334, 0.5, 3.0, 0.1,
+    local sizeSlider = MakeSlider(win, Y(16), 0.5, 3.0, 0.1,
         "|cff555566small|r", "|cff555566large|r")
     sizeSlider:SetScript("OnValueChanged", function(self, val)
         local id = KeyFlashDB.effect or "ff14"
@@ -610,12 +621,12 @@ local function BuildWindow()
 
     -- Opacity
     local opLbl = win:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    opLbl:SetPoint("TOPLEFT", win, "TOPLEFT", M, -370)
+    opLbl:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(36))
     opLbl:SetText("|cff888888Opacity|r")
     local opVal = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     opVal:SetPoint("LEFT", opLbl, "RIGHT", 8, 0)
 
-    local opSlider = MakeSlider(win, -386, 0.1, 1.0, 0.05,
+    local opSlider = MakeSlider(win, Y(16), 0.1, 1.0, 0.05,
         "|cff555566dim|r", "|cff555566full|r")
     opSlider:SetScript("OnValueChanged", function(self, val)
         local id = KeyFlashDB.effect or "ff14"
@@ -634,10 +645,10 @@ local function BuildWindow()
         opSlider:SetValue(1.0)
     end)
 
-    Div(win, -420)
+    Div(win, Y(34))
 
     -- ── COMPATIBILITY section ─────────────────────────────────────────────────
-    SectionLabel(win, "COMPATIBILITY", -432)
+    SectionLabel(win, "COMPATIBILITY", Y(12))
 
     local cbHook = CreateFrame("CheckButton", nil, win)
     cbHook:SetSize(22, 22)
@@ -646,7 +657,7 @@ local function BuildWindow()
     cbHook:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
     cbHook:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
     cbHook:SetDisabledCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check-Disabled")
-    cbHook:SetPoint("TOPLEFT", win, "TOPLEFT", M, -456)
+    cbHook:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(24))
     cbHook:SetScript("OnClick", function(self)
         KeyFlashDB.forceUseActionHook = self:GetChecked() and true or false
     end)
@@ -664,7 +675,7 @@ local function BuildWindow()
     cbFlash:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
     cbFlash:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
     cbFlash:SetDisabledCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check-Disabled")
-    cbFlash:SetPoint("TOPLEFT", win, "TOPLEFT", M, -498)
+    cbFlash:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(42))
     cbFlash:SetScript("OnClick", function(self)
         KeyFlashDB.suppressWowFlash = self:GetChecked() and true or false
     end)
@@ -675,10 +686,10 @@ local function BuildWindow()
     cbFlashSub:SetPoint("TOPLEFT", cbFlash, "BOTTOMLEFT", 0, -2)
     cbFlashSub:SetText("|cff555566Hides the pushed-down frame shown while a button is held. Proc glows and the auto-attack indicator are unaffected.|r")
 
-    Div(win, -540)
+    Div(win, Y(42))
 
     -- ── MINIMAP section ───────────────────────────────────────────────────────
-    SectionLabel(win, "MINIMAP", -552)
+    SectionLabel(win, "MINIMAP", Y(12))
 
     local cbMinimap = CreateFrame("CheckButton", nil, win)
     cbMinimap:SetSize(22, 22)
@@ -687,7 +698,7 @@ local function BuildWindow()
     cbMinimap:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
     cbMinimap:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
     cbMinimap:SetDisabledCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check-Disabled")
-    cbMinimap:SetPoint("TOPLEFT", win, "TOPLEFT", M, -576)
+    cbMinimap:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(24))
     cbMinimap:SetScript("OnClick", function(self)
         local show = self:GetChecked() and true or false
         KeyFlashDB.minimapHide = not show
@@ -700,11 +711,11 @@ local function BuildWindow()
     cbMinimapLbl:SetPoint("LEFT", cbMinimap, "RIGHT", 6, 0)
     cbMinimapLbl:SetText("Show minimap button")
 
-    Div(win, -608)
+    Div(win, Y(32))
 
     -- ── Restore All Defaults ──────────────────────────────────────────────────
     local restoreBtn = MakeBtn(win, "Restore All Defaults", 160, 26)
-    restoreBtn:SetPoint("TOPLEFT", win, "TOPLEFT", M, -624)
+    restoreBtn:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(16))
     restoreBtn:SetScript("OnClick", function()
         StaticPopup_Show("KEYFLASH_RESET_CONFIRM")
     end)
@@ -719,12 +730,16 @@ local function BuildWindow()
         hideOnEscape = true,
     }
 
-    Div(win, -656)
+    Div(win, Y(32))
 
     -- ── Credits ───────────────────────────────────────────────────────────────
     local credits = win:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    credits:SetPoint("TOPLEFT", win, "TOPLEFT", M, -662)
+    credits:SetPoint("TOPLEFT", win, "TOPLEFT", M, Y(6))
     credits:SetText("|cff444455Feedback & Bugreports:|r  |cff666677twitch.tv/soundzgood|r  |cff444455/|r  |cff666677Discord: soundz1|r")
+
+    -- Window height follows the cursor, so adding a control no longer means
+    -- remembering to bump a hardcoded height as well.
+    win:SetHeight(-y + 12)
 
     -- ── SyncSliders: load current effect's per-effect settings into UI ────────
     SyncSliders = function()
