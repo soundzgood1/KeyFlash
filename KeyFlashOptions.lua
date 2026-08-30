@@ -165,6 +165,13 @@ local function MakeCustomDropdown(parent, y, width, effects, onSelect)
 
     function btn:SetSelection(text) lbl:SetText(text) end
 
+    -- Exposed so the owning window can close the list with itself: popup and
+    -- catcher are parented to UIParent (to escape the window's clipping), so
+    -- win:Hide() -- including via Escape through UISpecialFrames -- would
+    -- otherwise leave the list floating and the invisible fullscreen catcher
+    -- swallowing the next click anywhere in the UI.
+    btn.popup = popup
+
     return btn
 end
 
@@ -419,7 +426,6 @@ local function BuildWindow()
 
     local effectDD = MakeCustomDropdown(win, -136, 163, KeyFlash.Effects, function(id)
         KeyFlashDB.effect = id
-        KeyFlash.RebuildOverlays()
         UpdateSwatch()
         SyncSliders()
     end)
@@ -515,14 +521,12 @@ local function BuildWindow()
                 KeyFlashDB.effectColors     = KeyFlashDB.effectColors or {}
                 KeyFlashDB.effectColors[id] = { nr, ng, nb }
                 swTex:SetColorTexture(nr, ng, nb, 1)
-                KeyFlash.RebuildOverlays()
             end,
             cancelFunc = function(prev)
                 KeyFlashDB.effectColors     = KeyFlashDB.effectColors or {}
                 KeyFlashDB.effectColors[id] = hadCustom
                     and { prev.r, prev.g, prev.b } or nil
                 UpdateSwatch()
-                KeyFlash.RebuildOverlays()
             end,
         })
     end)
@@ -532,7 +536,6 @@ local function BuildWindow()
         KeyFlashDB.effectColors     = KeyFlashDB.effectColors or {}
         KeyFlashDB.effectColors[id] = nil
         UpdateSwatch()
-        KeyFlash.RebuildOverlays()
     end)
 
     Div(win, -228)
@@ -555,7 +558,6 @@ local function BuildWindow()
         KeyFlashDB.effectSettings[id] = KeyFlashDB.effectSettings[id] or {}
         KeyFlashDB.effectSettings[id].animSpeed = val
         speedVal:SetText(string.format("|cffffe066%.1fx|r", val))
-        KeyFlash.RebuildOverlays()
     end)
     local speedDef = MakeBtn(win, "Default", 68, 22)
     speedDef:SetPoint("LEFT", speedSlider, "RIGHT", 8, 0)
@@ -565,7 +567,6 @@ local function BuildWindow()
         KeyFlashDB.effectSettings[id] = KeyFlashDB.effectSettings[id] or {}
         KeyFlashDB.effectSettings[id].animSpeed = 1.0
         speedSlider:SetValue(1.0)
-        KeyFlash.RebuildOverlays()
     end)
 
     -- Size
@@ -742,6 +743,10 @@ local function BuildWindow()
 
         UpdateSwatch()
         SyncSliders()
+    end)
+
+    win:SetScript("OnHide", function()
+        effectDD.popup:Hide()
     end)
 end
 

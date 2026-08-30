@@ -177,9 +177,13 @@ local function AcquireOverlay(button, maxScale, noPreShrink)
     return ov
 end
 
-function KeyFlash.RebuildOverlays()
-    pool = {}
-end
+-- Kept as a no-op for compatibility: it used to do `pool = {}`, which achieved
+-- nothing (PlayEffect re-reads colour, speed, size and opacity on every play,
+-- and AcquireOverlay re-derives the size) while orphaning every pooled overlay
+-- -- WoW frames cannot be destroyed, so they lingered as hidden children of
+-- their buttons. The colour picker called it on every OnColorSelect, i.e.
+-- continuously while dragging the wheel.
+function KeyFlash.RebuildOverlays() end
 
 -- Enable/disable, shared by the minimap button, the addon compartment entry
 -- and /kf so all three report the state the same way.
@@ -190,7 +194,6 @@ end
 
 function KeyFlash.SetEnabled(on)
     KeyFlashDB.enabled = on and true or false
-    KeyFlash.RebuildOverlays()
     KeyFlash.PrintStatus()
 end
 
@@ -270,8 +273,13 @@ function KeyFlash.PlayEffect(button)
         ov.ra:SetOrder(1)
     end
 
+    -- Stop() before Show(): OnFinished still receives the `requested` argument
+    -- in 12.x, so stopping a running group can fire it, and our OnFinished
+    -- hides the overlay and returns it to the pool. AcquireOverlay only hands
+    -- out finished overlays today, so this cannot currently bite -- ordering it
+    -- this way keeps it that way if that invariant ever changes.
+    if ov.ag:IsPlaying() then ov.ag:Stop() end
     ov:Show()
-    ov.ag:Stop()
     ov.ag:Play()
 end
 
@@ -285,10 +293,13 @@ local slotToSpellId   = {}  -- action slot → spellId currently on it; reverse 
                             -- so a slot change can drop its stale spellIdToButton
                             -- entry in O(1) instead of scanning the whole map.
 
--- Deduplication: when UseAction/PostClick already flashed a button, suppress the
--- follow-up UNIT_SPELLCAST_SENT flash so the animation doesn't fire twice.
+-- Deduplication: a single mouse click reaches us twice -- SecureTemplates.lua
+-- calls UseAction (which we hook) and then fires PostClick -- but both land in
+-- the same frame. The window only has to outlast one frame, so it is kept just
+-- above a 20fps frame time. It used to be 0.15s, which also swallowed genuine
+-- repeat presses faster than ~6.6/s, i.e. exactly what spammers do.
 local recentFlash   = {}   -- [button] = GetTime() of last flash
-local DEDUP_WINDOW  = 0.15 -- seconds
+local DEDUP_WINDOW  = 0.06 -- seconds
 
 local function FlashButton(btn)
     if not btn then return end
